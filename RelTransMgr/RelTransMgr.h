@@ -34,6 +34,8 @@ class TRelTransMgr
 
     void relayMsg(SPtr<TRelMsg> msg);
     void relayMsgRepl(SPtr<TRelMsg> msg);
+    void relayMsgRaw(SPtr<TRelMsg> msg);
+    void relayMsgReplRaw(SPtr<TRelMsg> msg);
     void dump();
 
     bool isDone();

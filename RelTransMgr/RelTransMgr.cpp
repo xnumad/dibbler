@@ -256,6 +256,165 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
     RelCfgMgr().dump();
 }
 
+/**
+ * relays normal (i.e. not server replies) messages to defined servers,
+ * without encapsulating
+ */
+void TRelTransMgr::relayMsgRaw(SPtr<TRelMsg> msg)
+{
+    static char buf[MAX_PACKET_LEN];
+    int offset = 0;
+    int bufLen;
+    int hopCount = 0;
+    if (!msg->check()) {
+        Log(Warning) << "Invalid message received." << LogEnd;
+        return;
+    }
+
+    if (msg->getIface() == RelIfaceMgr().getIfaceByName("wlp2s0")->getID()) { //HARDCODED
+        this->relayMsgReplRaw(msg);
+        return;
+    }
+
+    if (msg->getType() == RELAY_FORW_MSG) {
+        hopCount = msg->getHopCount()+1;
+    }
+
+    // prepare message
+    SPtr<TIfaceIface> iface = RelIfaceMgr().getIfaceByID(msg->getIface());
+    SPtr<TIPv6Addr> addr;
+
+    // store header
+//    buf[offset++] = RELAY_FORW_MSG;
+//    buf[offset++] = hopCount;
+
+    // store link-addr
+    iface->firstGlobalAddr();
+    addr = iface->getGlobalAddr();
+    if (!addr) {
+        Log(Warning) << "Interface " << iface->getFullName() << " does not have global address." << LogEnd;
+        addr = new TIPv6Addr("::", true);
+    }
+    //addr->storeSelf(buf+offset);
+    //offset += 16;
+
+    // store peer-addr
+    addr = msg->getRemoteAddr();
+    //addr->storeSelf(buf+offset);
+    //offset += 16;
+
+    SPtr<TRelCfgIface> cfgIface;
+    cfgIface = RelCfgMgr().getIfaceByID(msg->getIface());
+    TRelOptInterfaceID ifaceID(cfgIface->getInterfaceID(), 0);
+
+    if (RelCfgMgr().getInterfaceIDOrder()==REL_IFACE_ID_ORDER_BEFORE)
+    {
+        // store InterfaceID option
+        //ifaceID.storeSelf(buf + offset);
+        //offset += ifaceID.getSize();
+        Log(Debug) << "Interface-id option added before relayed message." << LogEnd;
+    }
+
+    // store relay msg option
+    //writeUint16((buf+offset), OPTION_RELAY_MSG);
+    //offset += sizeof(uint16_t);
+    //writeUint16((buf+offset), msg->getSize());
+    //offset += sizeof(uint16_t);
+    bufLen = msg->storeSelf(buf+offset);
+    offset += bufLen;
+
+    if (RelCfgMgr().getInterfaceIDOrder()==REL_IFACE_ID_ORDER_AFTER)
+    {
+        // store InterfaceID option
+        //ifaceID.storeSelf(buf + offset);
+        //offset += ifaceID.getSize();
+        Log(Debug) << "Interface-id option added after relayed message." << LogEnd;
+    }
+
+    if (RelCfgMgr().getInterfaceIDOrder()==REL_IFACE_ID_ORDER_NONE)
+    {
+        Log(Warning) << "Interface-id option not added (interface-id-order omit used in relay.conf). "
+                     << "That is a debugging feature and violates RFC3315. Use with caution." << LogEnd;
+    }
+
+    SPtr<TOptVendorData> remoteID = RelCfgMgr().getRemoteID();
+    if (remoteID) {
+        //remoteID->storeSelf(buf+offset);
+        //offset += remoteID->getSize();
+        Log(Debug) << "Appended RemoteID with " << remoteID->getVendorDataLen()
+                   << "-byte long data (option length="
+                   << remoteID->getSize() << ")." << LogEnd;
+    }
+
+    SPtr<TOpt> relayID = RelCfgMgr().getRelayID();
+    if (relayID) {
+        //relayID->storeSelf(buf + offset);
+        //offset += relayID->getSize();
+
+        Log(Debug) << "Appended Relay-ID with " << relayID->getSize() << " bytes." << LogEnd;
+    }
+
+    if (RelCfgMgr().getClientLinkLayerAddress()) {
+        SPtr<TOpt> lladdr = getClientLinkLayerAddr(msg);
+        if (lladdr) {
+            Log(Debug) << "Appended client link-layer address option with "
+                       << lladdr->getSize() << " bytes." << LogEnd;
+            //lladdr->storeSelf(buf + offset);
+            //offset += lladdr->getSize();
+        }
+    }
+
+    SPtr<TRelOptEcho> echo = RelCfgMgr().getEcho();
+    if (echo) {
+        //echo->storeSelf(buf+offset);
+        //offset += echo->getSize();
+        Log(Debug) << "Appended EchoRequest option with ";
+
+        int i=0;
+        char tmpBuf[256];
+        for (i=0;i<255;i++)
+            tmpBuf[i] = 255-i;
+
+        for (int i=0; i<echo->count(); i++) {
+            int code = echo->getReqOpt(i);
+            SPtr<TRelOptGeneric> gen = new TRelOptGeneric(code, tmpBuf, 4, 0);
+            //gen->storeSelf(buf+offset);
+            //offset += gen->getSize();
+            Log(Cont) << code << " ";
+        }
+        Log(Cont) << " opt(s)." << LogEnd;
+    }
+
+    RelCfgMgr().firstIface();
+    while (cfgIface = RelCfgMgr().getIface()) {
+        if (cfgIface->getServerUnicast()) {
+            Log(Notice) << "Relaying encapsulated " << msg->getName() << " message on the "
+                        << cfgIface->getFullName() << " interface to unicast ("
+                        << cfgIface->getServerUnicast()->getPlain() << ") address, port "
+                        << DHCPSERVER_PORT << "." << LogEnd;
+
+            if (!RelIfaceMgr().send(cfgIface->getID(), buf, offset,
+                                    cfgIface->getServerUnicast(), DHCPSERVER_PORT)) {
+                Log(Error) << "Failed to send data to server unicast address." << LogEnd;
+            }
+
+        }
+        if (cfgIface->getServerMulticast()) {
+            addr = new TIPv6Addr(ALL_DHCP_RELAY_AGENTS_AND_SERVERS, true);
+            Log(Notice) << "Relaying encapsulated " << msg->getName() << " message on the "
+                        << cfgIface->getFullName() << " interface to multicast ("
+                        << addr->getPlain() << ") address, port " << DHCPSERVER_PORT
+                        << "." << ALL_DHCP_RELAY_AGENTS_AND_SERVERS << LogEnd;
+            if (!RelIfaceMgr().send(cfgIface->getID(), buf, offset, addr, DHCPSERVER_PORT)) {
+                Log(Error) << "Failed to send data to server multicast address." << LogEnd;
+            }
+        }
+    }
+
+    // save DB state regardless of action taken
+    RelCfgMgr().dump();
+}
+
 void TRelTransMgr::relayMsgRepl(SPtr<TRelMsg> msg) {
     int port;
     SPtr<TRelCfgIface> cfgIface = RelCfgMgr().getIfaceByInterfaceID(msg->getDestIface());
@@ -267,6 +426,47 @@ void TRelTransMgr::relayMsgRepl(SPtr<TRelMsg> msg) {
 
     SPtr<TIfaceIface> iface = RelIfaceMgr().getIfaceByID(cfgIface->getID());
     SPtr<TIPv6Addr> addr = msg->getDestAddr();
+    static char buf[MAX_PACKET_LEN];
+    int bufLen;
+
+    if (!iface) {
+        Log(Warning) << "Unable to find interface with interfaceID=" << msg->getDestIface()
+                     << LogEnd;
+        return;
+    }
+
+    bufLen = msg->storeSelf(buf);
+    if (msg->getType() == RELAY_REPL_MSG)
+        port = DHCPSERVER_PORT;
+    else
+        port = DHCPCLIENT_PORT;
+    Log(Notice) << "Relaying decapsulated " << msg->getName() << " message on the "
+                << iface->getFullName() << " interface to the " << addr->getPlain()
+                << ", port " << port << "." << LogEnd;
+
+    if (!RelIfaceMgr().send(iface->getID(), buf, bufLen, addr, port)) {
+        Log(Error) << "Failed to decapsulated data." << LogEnd;
+    }
+
+}
+
+void TRelTransMgr::relayMsgReplRaw(SPtr<TRelMsg> msg) {
+    int port;
+
+    SPtr<TRelCfgIface> cfgIface;
+    RelCfgMgr().firstIface();
+    std::string ifaceName;
+    while (cfgIface = RelCfgMgr().getIface()) {
+        if (cfgIface->getClientMulticast() || cfgIface->getClientUnicast()) {
+            ifaceName = cfgIface->getName(); //client interface
+            Log(Debug) << "Sending to interface " << cfgIface->getName() << LogEnd;
+        }
+    }
+
+    SPtr<TIfaceIface> iface = RelIfaceMgr().getIfaceByName(ifaceName); //downstream interface
+    
+    //SPtr<TIPv6Addr> addr = msg->getDestAddr();
+    SPtr<TIPv6Addr> addr = new TIPv6Addr("fe80::2", true); //HARDCODED (downstream IP address to which all relayed messages shall be sent to)
     static char buf[MAX_PACKET_LEN];
     int bufLen;
 

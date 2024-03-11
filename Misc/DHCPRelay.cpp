@@ -96,7 +96,8 @@ void TDHCPRelay::run()
 	}
 	// Log(Cont) << ", " << msg->getRelayCount() << " relay(s).";
 	Log(Cont) << LogEnd;
-	RelTransMgr().relayMsg(msg);
+    //RelTransMgr().relayMsg(msg);
+    RelTransMgr().relayMsgRaw(msg);
     }
     Log(Notice) << "Bye bye." << LogEnd;
 }
