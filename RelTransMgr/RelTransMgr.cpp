@@ -156,7 +156,7 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
 
         }
         if (cfgIface->getServerMulticast()) {
-            addr = new TIPv6Addr(ALL_DHCP_SERVERS, true);
+            addr = new TIPv6Addr(ALL_DHCP_RELAY_AGENTS_AND_SERVERS, true);
             Log(Notice) << "Relaying encapsulated " << msg->getName() << " message on the "
                         << cfgIface->getFullName() << " interface to multicast ("
                         << addr->getPlain() << ") address, port " << DHCPSERVER_PORT
