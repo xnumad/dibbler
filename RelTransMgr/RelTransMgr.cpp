@@ -113,7 +113,7 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
         return;
     }
 
-    if (msg->getDestAddr()) {
+    if (msg->getIface() == RelIfaceMgr().getIfaceByName("wlp2s0")->getID()) { //HARDCODED
         this->relayMsgRepl(msg);
         return;
     }
