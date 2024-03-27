@@ -113,9 +113,19 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
         return;
     }
 
-    if (msg->getIface() == RelIfaceMgr().getIfaceByName("wlp2s0")->getID()) { //HARDCODED
-        this->relayMsgRepl(msg);
-        return;
+    RelCfgMgr().firstIface();
+    SPtr<TRelCfgIface> cfgIface;
+    std::string ifaceName;
+    while (cfgIface = RelCfgMgr().getIface()) {
+        if (cfgIface->getServerMulticast() || cfgIface->getServerMulticast()) {
+            //server interface
+            if (cfgIface->getInterfaceID() == msg->getIface()) {
+                ifaceName = cfgIface->getName();
+                Log(Debug) << "Reply from interface " << cfgIface->getName() << LogEnd;
+                this->relayMsgRepl(msg);
+                return;
+            }
+        }
     }
 
     if (msg->getType() == RELAY_FORW_MSG) {
@@ -127,7 +137,6 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
     SPtr<TIPv6Addr> addr;
 
 
-    SPtr<TRelCfgIface> cfgIface;
     cfgIface = RelCfgMgr().getIfaceByID(msg->getIface());
     TRelOptInterfaceID ifaceID(cfgIface->getInterfaceID(), 0);
 
