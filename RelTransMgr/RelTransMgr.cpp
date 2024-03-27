@@ -100,6 +100,7 @@ bool TRelTransMgr::openSocket(SPtr<TRelCfgIface> cfgIface) {
 
 /**
  * relays normal (i.e. not server replies) messages to defined servers
+ * without encapsulating
  */
 void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
 {
@@ -125,106 +126,11 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
     SPtr<TIfaceIface> iface = RelIfaceMgr().getIfaceByID(msg->getIface());
     SPtr<TIPv6Addr> addr;
 
-    // store header
-    buf[offset++] = RELAY_FORW_MSG;
-    buf[offset++] = hopCount;
-
-    // store link-addr
-    iface->firstGlobalAddr();
-    addr = iface->getGlobalAddr();
-    if (!addr) {
-        Log(Warning) << "Interface " << iface->getFullName() << " does not have global address." << LogEnd;
-        addr = new TIPv6Addr("::", true);
-    }
-    addr->storeSelf(buf+offset);
-    offset += 16;
-
-    // store peer-addr
-    addr = msg->getRemoteAddr();
-    addr->storeSelf(buf+offset);
-    offset += 16;
 
     SPtr<TRelCfgIface> cfgIface;
     cfgIface = RelCfgMgr().getIfaceByID(msg->getIface());
     TRelOptInterfaceID ifaceID(cfgIface->getInterfaceID(), 0);
 
-    if (RelCfgMgr().getInterfaceIDOrder()==REL_IFACE_ID_ORDER_BEFORE)
-    {
-        // store InterfaceID option
-        ifaceID.storeSelf(buf + offset);
-        offset += ifaceID.getSize();
-        Log(Debug) << "Interface-id option added before relayed message." << LogEnd;
-    }
-
-    // store relay msg option
-    writeUint16((buf+offset), OPTION_RELAY_MSG);
-    offset += sizeof(uint16_t);
-    writeUint16((buf+offset), msg->getSize());
-    offset += sizeof(uint16_t);
-    bufLen = msg->storeSelf(buf+offset);
-    offset += bufLen;
-
-    if (RelCfgMgr().getInterfaceIDOrder()==REL_IFACE_ID_ORDER_AFTER)
-    {
-        // store InterfaceID option
-        ifaceID.storeSelf(buf + offset);
-        offset += ifaceID.getSize();
-        Log(Debug) << "Interface-id option added after relayed message." << LogEnd;
-    }
-
-    if (RelCfgMgr().getInterfaceIDOrder()==REL_IFACE_ID_ORDER_NONE)
-    {
-        Log(Warning) << "Interface-id option not added (interface-id-order omit used in relay.conf). "
-                     << "That is a debugging feature and violates RFC3315. Use with caution." << LogEnd;
-    }
-
-    SPtr<TOptVendorData> remoteID = RelCfgMgr().getRemoteID();
-    if (remoteID) {
-        remoteID->storeSelf(buf+offset);
-        offset += remoteID->getSize();
-        Log(Debug) << "Appended RemoteID with " << remoteID->getVendorDataLen()
-                   << "-byte long data (option length="
-                   << remoteID->getSize() << ")." << LogEnd;
-    }
-
-    SPtr<TOpt> relayID = RelCfgMgr().getRelayID();
-    if (relayID) {
-        relayID->storeSelf(buf + offset);
-        offset += relayID->getSize();
-
-        Log(Debug) << "Appended Relay-ID with " << relayID->getSize() << " bytes." << LogEnd;
-    }
-
-    if (RelCfgMgr().getClientLinkLayerAddress()) {
-        SPtr<TOpt> lladdr = getClientLinkLayerAddr(msg);
-        if (lladdr) {
-            Log(Debug) << "Appended client link-layer address option with "
-		       << lladdr->getSize() << " bytes." << LogEnd;
-            lladdr->storeSelf(buf + offset);
-            offset += lladdr->getSize();
-        }
-    }
-
-    SPtr<TRelOptEcho> echo = RelCfgMgr().getEcho();
-    if (echo) {
-        echo->storeSelf(buf+offset);
-        offset += echo->getSize();
-        Log(Debug) << "Appended EchoRequest option with ";
-
-        int i=0;
-        char tmpBuf[256];
-        for (i=0;i<255;i++)
-            tmpBuf[i] = 255-i;
-
-        for (int i=0; i<echo->count(); i++) {
-            int code = echo->getReqOpt(i);
-            SPtr<TRelOptGeneric> gen = new TRelOptGeneric(code, tmpBuf, 4, 0);
-            gen->storeSelf(buf+offset);
-            offset += gen->getSize();
-            Log(Cont) << code << " ";
-        }
-        Log(Cont) << " opt(s)." << LogEnd;
-    }
 
     RelCfgMgr().firstIface();
     while (cfgIface = RelCfgMgr().getIface()) {
