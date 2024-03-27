@@ -173,15 +173,21 @@ void TRelTransMgr::relayMsg(SPtr<TRelMsg> msg)
 
 void TRelTransMgr::relayMsgRepl(SPtr<TRelMsg> msg) {
     int port;
-    SPtr<TRelCfgIface> cfgIface = RelCfgMgr().getIfaceByInterfaceID(msg->getDestIface());
-    if (!cfgIface) {
-        Log(Error) << "Unable to relay message: Invalid interfaceID value:"
-                   << msg->getDestIface() << LogEnd;
-        return;
+
+    RelCfgMgr().firstIface();
+    SPtr<TRelCfgIface> cfgIface;
+    std::string ifaceName;
+    while (cfgIface = RelCfgMgr().getIface()) {
+        if (cfgIface->getClientMulticast() || cfgIface->getClientUnicast()) {
+            //client interface
+            ifaceName = cfgIface->getName();
+            Log(Debug) << "Sending to interface " << cfgIface->getName() << LogEnd;
+            break;
+        }
     }
 
-    SPtr<TIfaceIface> iface = RelIfaceMgr().getIfaceByID(cfgIface->getID());
-    SPtr<TIPv6Addr> addr = msg->getDestAddr();
+    SPtr<TIfaceIface> iface = RelIfaceMgr().getIfaceByName(ifaceName); //downstream interface
+    SPtr<TIPv6Addr> addr = new TIPv6Addr("fe80::2", true); //HARDCODED (downstream IP address to which all relayed messages shall be sent to)
     static char buf[MAX_PACKET_LEN];
     int bufLen;
 
